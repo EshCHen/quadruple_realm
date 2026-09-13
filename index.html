@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QUADRUPLE OS · 四分境域档案库</title>
+<!-- 兜底样式：皮肤加载失败时也不白屏 -->
+<style id="arcFallback">
+  html,body{height:100%;}
+  body{margin:0;background:#05070e;color:#e8edf7;overflow:hidden;
+    font-family:system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;}
+  #arcMsg{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:10px;text-align:center;padding:26px;line-height:1.9;}
+  #arcMsg b{color:#22d3ee;font-family:ui-monospace,monospace;letter-spacing:.1em;}
+  #arcMsg span{color:#8fa3c0;font-size:12px;max-width:520px;}
+</style>
+</head>
+<body>
+<div id="arcMsg">
+  <b>▸ 正在装载界面皮肤 …</b>
+  <span>首次加载会从同目录的 <code>四分境域.html</code> 提取样式与界面骨架（之后走本机缓存，不再重复读取）。<br>
+  若长时间停在这里，说明该文件不在同目录 —— 请把它与本页放在一起，或放入导出的 <code>style.css</code>。</span>
+</div>
+
+<script>
+/* =========================================================================
+   四分境域 · 档案库（精简主程序）
+   设计：本页只保留「界面外壳 + 档案 App + 音乐 + 音效」，其余功能全部剔除。
+       界面外观 100% 复用原 四分境域.html 的样式与骨架（首次加载时提取并缓存）。
+   ========================================================================= */
+(function(){
+  'use strict';
+
+  /* 错误捕获（自检面板会显示） */
+  window.__errs = window.__errs || [];
+  window.addEventListener('error', function(e){ try{ window.__errs.push((e.message||'') + ' @' + (e.lineno||0) + ':' + (e.colno||0)); }catch(err){} });
+
+  var W = '世界观设定/', C = '角色档案/';
+  var SKIN_HTML = '四分境域.html';           /* 皮肤来源文件（可改为导出的 skin.html） */
+  var K_CSS = 'qr3_skin_css', K_CHROME = 'qr3_skin_chrome', K_THEME = 'qr3_theme', K_NAME = 'qr3_name';
+  var IS_M = matchMedia('(max-width: 780px)').matches;
+  var booted = false, wins = [];
+
+  /* ---------------- 小工具 ---------------- */
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var toastT;
+  function toast(msg){
+    var t = document.querySelector('.toast') || $('toast');
+    if (!t){ t = document.createElement('div'); t.className='toast'; document.body.appendChild(t); }
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+  }
+
+  /* ---------------- 音效（WebAudio 合成） ---------------- */
+  var SFX = (function(){
+    var ctx = null;
+    function ac(){ if (!ctx){ try{ ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ ctx=null; } }
+      if (ctx && ctx.state === 'suspended'){ try{ ctx.resume(); }catch(e){} } return ctx; }
+    function beep(f1, f2, dur, type, vol){
+      var c = ac(); if (!c) return;
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = type || 'sine';
+      o.frequency.setValueAtTime(f1, c.currentTime);
+      if (f2) o.frequency.exponentialRampToValueAtTime(f2, c.currentTime + dur);
+      g.gain.setValueAtTime(vol || .14, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(.0001, c.currentTime + dur);
+      o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + .02);
+    }
+    return {
+      click:function(){ beep(760,1180,.09,'square',.09); },
+      hover:function(){ beep(1500,1700,.045,'sine',.035); },
+      open:function(){ beep(420,900,.16,'triangle',.12); },
+      close:function(){ beep(760,380,.15,'triangle',.11); },
+      error:function(){ beep(300,240,.2,'sawtooth',.1); }
+    };
+  })();
+
+  /* ---------------- 背景音乐 ---------------- */
+  var BGM = {
+    on:true, vol:.35, cur:null, started:false,
+    files:['audio/bgm.mp3','audio/bgm.m4a','audio/bgm.ogg','audio/bgm.wav','audio/music.mp3','audio/theme.mp3'],
+    domain:{ east:'audio/east.mp3', west:'audio/west.mp3', south:'audio/south.mp3', north:'audio/north.mp3' }
+  };
+  try{ var bp = JSON.parse(localStorage.getItem('qr3_bgm')||'{}'); if (typeof bp.on==='boolean') BGM.on=bp.on; if (bp.vol) BGM.vol=bp.vol; }catch(e){}
+  function bgmPref(){ try{ localStorage.setItem('qr3_bgm', JSON.stringify({ on:BGM.on, vol:BGM.vol })); }catch(e){} }
+  function bgmTry(list, i){
+    if (!BGM.on || i >= list.length) return;
+    var a = new Audio(list[i]); a.loop=true; a.volume=0; a.preload='auto';
+    a.addEventListener('error', function(){ bgmTry(list, i+1); });
+    try{ var p = a.play(); if (p && p.catch) p.catch(function(){}); }catch(e){}
+    BGM.cur = a;
+    var s=0, t=setInterval(function(){ s++; a.volume=Math.min(BGM.vol, BGM.vol*s/12); if (s>=12){ clearInterval(t); a.volume=BGM.vol; } },60);
+  }
+  function bgmStart(){
+    if (!BGM.on || BGM.started) return;
+    BGM.started = true; bgmUI();
+    var th = '';
+    try{ th = (localStorage.getItem(K_THEME)||''); }catch(e){}
+    var list = [];
+    if (BGM.domain[th]) list.push(BGM.domain[th]);
+    list = list.concat(BGM.files);
+    bgmTry(list, 0);
+  }
+  function bgmStop(){ if (BGM.cur){ try{ BGM.cur.pause(); }catch(e){} } BGM.started=false; }
+  function bgmToggle(){
+    if (BGM.on && BGM.cur && !BGM.cur.paused){ BGM.on=false; bgmStop(); }
+    else { BGM.on=true;
+      if (BGM.cur){ try{ BGM.cur.volume=BGM.vol; var p=BGM.cur.play(); if(p&&p.catch)p.catch(function(){}); }catch(e){} }
+      else { BGM.started=false; bgmStart(); } }
+    bgmPref(); bgmLabel();
+  }
+  function bgmLabel(){ var tg=$('arcBgmTg'); if (tg) tg.textContent = (BGM.on && BGM.cur && !BGM.cur.paused) ? '⏸ 暂停' : '▶ 播放'; }
+  function bgmUI(){
+    if ($('arcBgmBox')) return;
+    var box = document.createElement('div'); box.id='arcBgmBox';
+    box.style.cssText='position:fixed;right:10px;top:44%;z-index:9700;display:flex;flex-direction:column;align-items:center;gap:8px;touch-action:none;';
+    var panel = document.createElement('div'); panel.id='arcBgmPanel';
+    panel.style.cssText='display:none;flex-direction:column;align-items:center;gap:6px;padding:8px 10px;border-radius:12px;border:1px solid rgba(34,211,238,.5);background:rgba(6,10,20,.94);box-shadow:0 6px 22px rgba(0,0,0,.5);';
+    var rng = document.createElement('input'); rng.type='range'; rng.min=0; rng.max=100; rng.value=Math.round(BGM.vol*100);
+    rng.style.cssText='width:96px;accent-color:#22d3ee;'; rng.title='音量';
+    rng.oninput=function(){ BGM.vol=rng.value/100; if (BGM.cur) BGM.cur.volume=BGM.vol; bgmPref(); };
+    var tg = document.createElement('span'); tg.id='arcBgmTg';
+    tg.style.cssText='cursor:pointer;font-family:ui-monospace,monospace;font-size:12px;color:#22d3ee;border:1px solid rgba(34,211,238,.55);border-radius:8px;padding:4px 10px;';
+    tg.onclick=function(e){ e.stopPropagation(); bgmToggle(); };
+    var h = document.createElement('div'); h.style.cssText='font-family:ui-monospace,monospace;font-size:9.5px;color:#8fa3c0;'; h.textContent='拖动小球可移动';
+    panel.appendChild(rng); panel.appendChild(tg); panel.appendChild(h);
+    var btn = document.createElement('button'); btn.id='arcBgmBtn'; btn.textContent='♪'; btn.title='单击开/关，拖动可移动';
+    btn.style.cssText='cursor:grab;width:46px;height:46px;border-radius:50%;border:1px solid rgba(34,211,238,.75);background:rgba(9,13,24,.9);color:#22d3ee;font-size:19px;box-shadow:0 0 16px rgba(34,211,238,.45);backdrop-filter:blur(4px);';
+    box.appendChild(panel); box.appendChild(btn); document.body.appendChild(box);
+    try{ var p0=JSON.parse(localStorage.getItem('qr3_bgm_pos')||'null');
+      if (p0 && typeof p0.x==='number'){ box.style.right='auto'; box.style.top='auto';
+        box.style.left=Math.max(4,Math.min(innerWidth-52,p0.x))+'px'; box.style.top=Math.max(4,Math.min(innerHeight-52,p0.y))+'px'; } }catch(e){}
+    var drag=false, moved=false, sx=0, sy=0, ox=0, oy=0;
+    btn.addEventListener('pointerdown', function(e){ drag=true; moved=false; sx=e.clientX; sy=e.clientY;
+      var r=box.getBoundingClientRect(); ox=r.left; oy=r.top; try{ btn.setPointerCapture(e.pointerId); }catch(err){} });
+    btn.addEventListener('pointermove', function(e){
+      if (!drag) return; var dx=e.clientX-sx, dy=e.clientY-sy;
+      if (Math.abs(dx)+Math.abs(dy) > 6) moved=true;
+      if (moved){ box.style.right='auto'; box.style.bottom='auto';
+        box.style.left=Math.max(4,Math.min(innerWidth-52, ox+dx))+'px';
+        box.style.top=Math.max(4,Math.min(innerHeight-52, oy+dy))+'px'; e.preventDefault(); } });
+    btn.addEventListener('pointerup', function(){
+      if (!drag) return; drag=false;
+      if (!moved){ panel.style.display = (panel.style.display==='flex') ? 'none' : 'flex'; bgmLabel(); }
+      else { try{ var r=box.getBoundingClientRect(); localStorage.setItem('qr3_bgm_pos', JSON.stringify({x:r.left,y:r.top})); }catch(e){} } });
+    btn.addEventListener('pointercancel', function(){ drag=false; });
+    bgmLabel();
+  }
+
+  /* =======================================================================
+     档案数据（要加档案：在对应 App 的 files 里加一行即可）
+     ======================================================================= */
+  var ARCH = [
+    { id:'overview', nm:'世界总览', ic:'globe', special:1, files:[{n:'00',t:'世界总览',f:W+'00_总览.md',d:'世界起源 · 四域对比 · 五海 · 管理规则'}] },
+    { id:'geo', nm:'地理区划', ic:'map', files:[
+      {n:'01',t:'东域',f:W+'01_东域.md',d:'狮子 · 权力 ｜ 48区 ｜ 石油与科技霸主'},
+      {n:'02',t:'西域',f:W+'02_西域.md',d:'火山 · 自由 ｜ 44区 ｜ 双中心区12城'},
+      {n:'03',t:'南域',f:W+'03_南域.md',d:'小麦 · 和平 ｜ 54区 ｜ 农业天堂'},
+      {n:'04',t:'北域',f:W+'04_北域.md',d:'船只 · 羁绊 ｜ 50区 ｜ 群岛与船舶'},
+      {n:'05',t:'魔域',f:W+'05_魔域.md',d:'权杖 · 共治 ｜ 钟海环绕 · 贸易路基石'}
+    ]},
+    { id:'history', nm:'历史政治', ic:'clock', files:[
+      {n:'06',t:'历史年表',f:W+'06_历史年表.md',d:'史前 2.3 亿年前 → 3047 编年'},
+      {n:'07',t:'战后协议',f:W+'07_战后协议体系.md',d:'和睦 / 友利 / 战利 三协议'},
+      {n:'08',t:'现任域主',f:W+'08_现任域主.md',d:'3047 年在任四域域主'}
+    ]},
+    { id:'econ', nm:'经济交通', ic:'coin', files:[
+      {n:'09',t:'语言体系',f:W+'09_语言体系.md',d:'域语 / 区语 / 世界通用语'},
+      {n:'10',t:'货币体系',f:W+'10_货币体系.md',d:'域币 / 纸币 / 虚拟支付 / 跨时空汇率'},
+      {n:'18',t:'十字贸易路',f:W+'18_十字贸易路.md',d:'建造史 · 天轨地轨 · 轨行车'}
+    ]},
+    { id:'org', nm:'机构势力', ic:'shield', files:[
+      {n:'11',t:'组织机构',f:W+'11_组织机构.md',d:'CBI / CDA / PIB / ZIBT / SOU / 利斯顿'},
+      {n:'12',t:'东域帮派',f:W+'12_东域帮派.md',d:'铁骸帮 / 矩阵城商会 / 异焰会 / 棱镜手 / 黯网'}
+    ]},
+    { id:'society', nm:'社会文化', ic:'people', files:[
+      {n:'19',t:'法律体系',f:W+'19_法律体系.md',d:'基础刑罚 / 分域特色法 / 婚姻家庭法'},
+      {n:'20',t:'宗教体系',f:W+'20_宗教体系.md',d:'四域宗教 + 全域宗教'},
+      {n:'21',t:'历史传说',f:W+'21_历史传说.md',d:'五大传说与跨维度对比'},
+      {n:'22',t:'风俗文化',f:W+'22_风俗文化.md',d:'四域文化圈与节庆'}
+    ]},
+    { id:'tech', nm:'科技超自然', ic:'chip', files:[
+      {n:'13',t:'时空机器',f:W+'13_时空机器.md',d:'三功能 / 风险 / 执照规则'},
+      {n:'14',t:'时空怪物',f:W+'14_时空怪物.md',d:'特姆与晶体价值'},
+      {n:'15',t:'异能体系',f:W+'15_异能体系.md',d:'觉醒 / 情绪阶级 / 焰火系统 / R18'},
+      {n:'16',t:'智能技术',f:W+'16_智能技术.md',d:'AI / 仿生人 / 生化电子人 / 机脑生命体'},
+      {n:'17',t:'身份认证',f:W+'17_身份认证.md',d:'皮下身份芯片与实体证件'}
+    ]},
+    { id:'chars', nm:'角色档案', ic:'user', files:[
+      {n:'00',t:'角色索引',f:C+'00_角色索引.md',d:'主要角色一览'},
+      {n:'01',t:'易拾',f:C+'01_易拾.md',d:'仿生人 · 怪物标记师'},
+      {n:'02',t:'秦齐',f:C+'02_秦齐.md',d:'时猎者 · 易拾恋人'},
+      {n:'03',t:'易少程',f:C+'03_易少程.md',d:'武器制造商 · 代号 R18'},
+      {n:'04',t:'早乙女樱',f:C+'04_早乙女樱.md',d:'大学生 · 易拾挚友'},
+      {n:'05',t:'十字蛇',f:C+'05_十字蛇.md',d:'奶茶店店长 · 易拾室友'},
+      {n:'06',t:'秦齐前世',f:C+'06_秦齐前世.md',d:'隐藏档案'}
+    ]}
+  ];
+  var IC = {
+    globe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"/></svg>',
+    map:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>',
+    clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></svg>',
+    coin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M9 9h6M9 15h6M12 6v12"/></svg>',
+    shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+    people:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="9" r="3.2"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6M16 6.5a3 3 0 0 1 0 5.6M17.5 14.8c1.7.6 2.8 2 3.1 4.2"/></svg>',
+    chip:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 3v3M14 3v3M10 18v3M14 18v3M3 10h3M3 14h3M18 10h3M18 14h3"/></svg>',
+    user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.5 20c.8-3.6 3.6-5.4 7.5-5.4S18.7 16.4 19.5 20"/></svg>'
+  };
+
+  /* =======================================================================
+     一、装载皮肤（CSS + 界面骨架）
+     ======================================================================= */
+  function injectCss(css){ var s = document.createElement('style'); s.id='arcSkinCss'; s.textContent = css; document.head.appendChild(s); }
+  function extractCss(html){
+    var out = [], re = /<style[^>]*>([\s\S]*?)<\/style>/gi, m;
+    while ((m = re.exec(html))) out.push(m[1]);
+    return out.join('\n');
+  }
+  function extractChrome(html){
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var parts = [];
+    Array.prototype.forEach.call(doc.body.children, function(el){
+      if (el.tagName === 'SCRIPT') return;
+      if (el.id === 'arcMsg') return;
+      parts.push(el.outerHTML);
+    });
+    return parts.join('\n');
+  }
+  function loadSkin(){
+    var css = '', chrome = '';
+    try{ css = localStorage.getItem(K_CSS) || ''; chrome = localStorage.getItem(K_CHROME) || ''; }catch(e){}
+    if (css && chrome){ injectCss(css); document.body.innerHTML = chrome; return Promise.resolve(true); }
+
+    /* 1) 先用同目录 style.css（如果已导出） */
+    var p0 = fetch('style.css', { cache:'no-store' }).then(function(r){
+      if (!r.ok) throw 0; return r.text();
+    }).then(function(t){ if (t && t.length > 400) css = t; }).catch(function(){});
+
+    return p0.then(function(){
+      if (css && chrome){ injectCss(css); document.body.innerHTML = chrome; return true; }
+      /* 2) 从皮肤源文件提取 */
+      return fetch(SKIN_HTML, { cache:'no-store' }).then(function(r){
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      }).then(function(html){
+        if (!css) css = extractCss(html);
+        if (!chrome) chrome = extractChrome(html);
+        if (!css || !chrome) throw new Error('皮肤内容为空');
+        try{ localStorage.setItem(K_CSS, css); localStorage.setItem(K_CHROME, chrome); }catch(e){}
+        injectCss(css); document.body.innerHTML = chrome;
+        return true;
+      });
+    }).catch(function(err){
+      /* 皮肤不可用 → 用内置兜底外壳，保证仍能阅读档案 */
+      buildFallbackShell();
+      console.warn('皮肤装载失败：', err && err.message || err);
+      return false;
+    });
+  }
+
+  /* =======================================================================
+     二、清理不需要的界面 + 随机域主题
+     ======================================================================= */
+  function pruneUI(){
+    var st = document.createElement('style');
+    st.textContent = '#mstatFab,#mstatPanel,.mstat-fab,.mstat-panel{display:none !important;}\n#tbVisits{display:none !important;}\n';
+    document.head.appendChild(st);
+    function hide(el){ if (el) el.style.display = 'none'; }
+    ['mstatFab','mstatPanel','tbVisits'].forEach(function(id){ hide($(id)); });
+    hide($('lname')); hide($('lpass'));
+    ['lr-login','lr-reg'].forEach(function(cls){
+      var els = document.querySelectorAll('.'+cls);
+      for (var i=0;i<els.length;i++){
+        var r = els[i].closest ? els[i].closest('.login-row') : null;
+        if (r) r.style.display='none'; else els[i].style.display='none';
+      }
+    });
+    var lr = $('lname'); if (lr && lr.closest){ var row = lr.closest('.login-row'); if (row) row.style.display='none'; }
+    var lp = $('lpass'); if (lp && lp.closest){ var row2 = lp.closest('.login-row'); if (row2) row2.style.display='none'; }
+  }
+  function applyTheme(css){
+    /* 从皮肤 CSS 里找出「body.xxx」形式的主题类名，随机套用一个 */
+    var names = {}, re = /body\.([A-Za-z0-9_-]+)/g, m;
+    while ((m = re.exec(css || ''))) names[m[1]] = 1;
+    var list = Object.keys(names);
+    if (!list.length) return '';
+    var pick = null, keys = ['east','west','south','north'];
+    var hit = [];
+    list.forEach(function(n){
+      var low = n.toLowerCase();
+      for (var i=0;i<keys.length;i++) if (low.indexOf(keys[i]) !== -1) hit.push({ n:n, k:keys[i] });
+    });
+    if (hit.length){ pick = hit[Math.floor(Math.random()*hit.length)]; }
+    else { pick = { n: list[Math.floor(Math.random()*list.length)], k:'' }; }
+    try{ document.body.className = String(document.body.className||'').replace(/\b(t-|th-|dom-|theme-)[\w-]*/g,'').trim(); }catch(e){}
+    document.body.classList.add(pick.n);
+    try{ localStorage.setItem(K_THEME, pick.k); }catch(e){}
+    return pick.k;
+  }
+
+  /* =======================================================================
+     三、开机 → 登录 → 桌面
+     ======================================================================= */
+  function boot(){
+    var b = $('boot');
+    if (!b){ endBoot(); return; }
+    try{
+      var box = b.querySelector('.boot-log');
+      if (box){
+        box.innerHTML = '';
+        var lines = ['BIOS QUADRUPLE-4.7.3 ........ OK','MEMORY CHECK ............ 8192 TB','档案库 MOUNT /world-archive','UPLINK ......... ESTABLISHED','校验：世界观设定 / 角色档案','就绪。'];
+        var i = 0;
+        var t = setInterval(function(){
+          if (i < lines.length){
+            var d = document.createElement('div'); d.textContent = '> ' + lines[i];
+            box.appendChild(d); i++;
+          } else { clearInterval(t); setTimeout(endBoot, 260); }
+        }, 200);
+        b.addEventListener('click', function(){ clearInterval(t); endBoot(); }, { once:true });
+        return;
+      }
+    }catch(e){}
+    setTimeout(endBoot, 900);
+  }
+  function endBoot(){
+    if (booted) return; booted = true;
+    var b = $('boot'); if (b) b.style.display = 'none';
+    var l = $('login');
+    if (l){ l.style.display = 'flex'; l.style.visibility = 'visible'; l.style.opacity = '1'; }
+    if (l && (!l.innerHTML || l.innerHTML.replace(/\s/g,'').length < 20)) buildLoginInto(l);
+    try{ document.body.classList.remove('logged'); }catch(e){}
+  }
+  /* 登录卡缺失时，用已知类名补一个（外观走原皮肤 CSS） */
+  function buildLoginInto(host){
+    host.innerHTML = '<div class="login-card" style="width:min(420px,90vw);">' +
+      '<div class="boot-logo" style="text-align:center;font-family:ui-monospace,monospace;font-size:22px;letter-spacing:.14em;color:var(--cyan,#22d3ee);">四分境域</div>' +
+      '<div style="text-align:center;font-family:ui-monospace,monospace;font-size:10px;color:var(--muted,#8fa3c0);letter-spacing:.3em;margin-top:6px;">QUADRUPLE OS · ARCHIVE</div>' +
+      '<div class="login-row" style="margin-top:16px;"><button class="lg-btn" data-sfx="open" onclick="doGuest()">▸ 访客快速体验</button></div>' +
+      '<div style="text-align:center;font-size:11px;color:var(--muted,#8fa3c0);margin-top:12px;">访客模式 · 仅浏览档案</div></div>';
+  }
+  function enter(name){
+    var l=$('login'); if (l) l.style.display='none';
+    var d=$('desk'); if (d){ d.style.display='block'; d.style.visibility='visible'; d.style.opacity='1'; }
+    ensureChrome();
+    try{ document.body.classList.add('logged'); }catch(e){}
+    var who = $('whoM'); if (who) who.textContent = name;
+    var wd  = $('wd');   if (wd)  wd.textContent  = name;
+    paintDock(); clock(); setInterval(clock, 20000);
+    SFX.open();
+    try{ bgmStart(); }catch(e){}
+    toast('▸ 档案库已就绪 · ' + name);
+    selfCheck();
+  }
+  /* 桌面缺少任务栏/Dock/窗口层时补齐，保证不空屏 */
+  function ensureChrome(){
+    var desk = $('desk'); if (!desk) return;
+    if (!$('dock')){
+      var dock = document.createElement('div'); dock.className='dock'; dock.id='dock';
+      dock.style.cssText='position:absolute;left:50%;transform:translateX(-50%);bottom:16px;display:flex;gap:10px;padding:12px;border-radius:16px;border:1px solid var(--line,rgba(90,140,190,.3));background:var(--panel,rgba(12,18,32,.9));overflow-x:auto;z-index:30;';
+      desk.appendChild(dock);
+    }
+    if (!$('winLayer')){
+      var wl = document.createElement('div'); wl.id='winLayer';
+      wl.style.cssText='position:absolute;inset:0;pointer-events:auto;z-index:20;';
+      desk.appendChild(wl);
+    }
+    if (!$('mLayer')){ var ml=document.createElement('div'); ml.id='mLayer'; document.body.appendChild(ml); }
+    /* 壁纸大字若缺失则补一个（走原皮肤变量） */
+    var wall = desk.querySelector('.wall-title, .wall, .wall-text');
+    if (!wall){
+      var wt = document.createElement('div'); wt.className='wall-title';
+      wt.style.cssText='position:absolute;left:0;right:0;top:38%;text-align:center;font-family:ui-monospace,monospace;font-size:clamp(34px,12vw,110px);letter-spacing:.12em;color:var(--cyan,#22d3ee);opacity:.9;pointer-events:none;';
+      wt.textContent='四分境域';
+      desk.appendChild(wt);
+    }
+  }
+  /* 自检：控制台输出，?debug=1 时同时显示在页面上 */
+  function selfCheck(){
+    var info = {};
+    try{
+      info['skin.css KB'] = Math.round(((localStorage.getItem(K_CSS)||'').length)/1024);
+      info['skin.chrome KB'] = Math.round(((localStorage.getItem(K_CHROME)||'').length)/1024);
+      info['body.class'] = document.body.className || '(空)';
+      ['boot','login','desk','dock','taskbar','winLayer'].forEach(function(id){
+        var e = $(id); info['#'+id] = e ? (e.style.display || getComputedStyle(e).display) : '不存在';
+      });
+      info['#login 内容长度'] = ($('login') ? ($('login').innerHTML||'').replace(/\s/g,'').length : 0);
+      var dk = $('dock'); info['dock 图标数'] = dk ? dk.querySelectorAll('.dapp').length : 0;
+      info['错误数'] = (window.__errs||[]).length;
+    }catch(e){}
+    try{ console.table ? console.table(info) : console.log(info); }catch(e){}
+    var problem = (info['skin.css KB'] < 5) || (info['skin.chrome KB'] < 1) || (info['#login 内容长度'] < 20) || (info['错误数'] > 0);
+    if (/[?&]debug=1/.test(location.search) || problem){
+      var box = $('arcDebug');
+      if (!box){ box = document.createElement('div'); box.id='arcDebug';
+        box.style.cssText='position:fixed;left:8px;bottom:8px;z-index:99998;max-width:70vw;max-height:40vh;overflow:auto;background:rgba(4,8,16,.94);border:1px solid var(--cyan,#22d3ee);border-radius:10px;padding:8px 10px;font:11px/1.5 ui-monospace,monospace;color:#cfe0f5;white-space:pre-wrap;';
+        document.body.appendChild(box); }
+      var txt = '▸ 自检\n';
+      Object.keys(info).forEach(function(k){ txt += k + ' = ' + info[k] + '\n'; });
+      if ((window.__errs||[]).length) txt += '\n⚠ 错误：\n' + window.__errs.join('\n');
+      box.textContent = txt;
+    }
+  }
+  function doGuest(){
+    var nm = '';
+    try{ nm = localStorage.getItem(K_NAME) || ''; }catch(e){}
+    if (!nm){ nm = '访客-' + Math.floor(1000 + Math.random()*9000); try{ localStorage.setItem(K_NAME, nm); }catch(e){} }
+    enter(nm);
+  }
+  function logout(){
+    SFX.close(); bgmStop();
+    var d=$('desk'); if (d) d.style.display='none';
+    closeAll();
+    var l=$('login'); if (l) l.style.display='';
+    try{ document.body.classList.remove('logged'); }catch(e){}
+  }
+  function clock(){
+    var el = $('clock'); if (!el) return;
+    var d = new Date(); function p(x){ return (x<10?'0':'')+x; }
+    el.textContent = '3047/' + p(d.getMonth()+1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  /* =======================================================================
+     四、Dock（档案 App）与窗口系统
+     ======================================================================= */
+  function paintDock(){
+    var dock = $('dock'); if (!dock) return;
+    dock.innerHTML = ARCH.map(function(a){
+      return '<div class="dapp" data-t="arc-' + a.id + '" data-sfx="open" onclick="archOpen(\'' + a.id + '\')">' +
+             '<span class="ico">' + (IC[a.ic] || IC.globe) + '</span>' +
+             '<span class="nm">' + esc(a.nm) + '</span></div>';
+    }).join('');
+  }
+  function archOpen(id){
+    var a = null; for (var i=0;i<ARCH.length;i++) if (ARCH[i].id===id) a = ARCH[i];
+    if (!a) return;
+    SFX.click();
+    var html = a.special ? overviewHtml() : listHtml(a);
+    openWin(a.nm, 'q://archive/' + a.id, html, 'arc:' + a.id);
+  }
+  function listHtml(a){
+    var h = '<h1>' + esc(a.nm) + '</h1><div class="app-sub">' + a.files.length + ' FILES · 点击卡片阅读（内容来自 ' + esc(W) + ' / ' + esc(C) + '）</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:10px;">';
+    a.files.forEach(function(f){
+      h += '<div data-sfx="open" onclick="archDoc(\'' + f.f + '\',\'' + esc(f.t) + '\')" class="arc-card">' +
+        '<div class="arc-no">' + f.n + '</div><div class="arc-tt">' + esc(f.t) + '</div><div class="arc-de">' + esc(f.d) + '</div></div>';
+    });
+    return h + '</div>';
+  }
+  function overviewHtml(){
+    var cards = [
+      { n:'东域', sym:'狮子 · 权力', num:'48 区', feat:'石油与科技霸主', f:W+'01_东域.md' },
+      { n:'西域', sym:'火山 · 自由', num:'44 区', feat:'军事强国 · 浓雾缺粮', f:W+'02_西域.md' },
+      { n:'南域', sym:'小麦 · 和平', num:'54 区', feat:'农业天堂 · 低城市化', f:W+'03_南域.md' },
+      { n:'北域', sym:'船只 · 羁绊', num:'50 区', feat:'群岛 · 海鲜与船舶', f:W+'04_北域.md' },
+      { n:'魔域', sym:'权杖 · 共治', num:'无固定区划', feat:'四域共有 · 贸易路基石', f:W+'05_魔域.md' }
+    ];
+    var h = '<h1>世界总览</h1><div class="app-sub">QUADRUPLE REALM · 四域十字 · 中央魔域</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:10px;">';
+    cards.forEach(function(c){
+      h += '<div data-sfx="open" onclick="archDoc(\'' + c.f + '\',\'' + c.n + '\')" class="arc-card">' +
+        '<div class="arc-tt" style="color:var(--cyan,#22d3ee);">' + c.n + '</div>' +
+        '<div class="arc-de">' + c.sym + '</div>' +
+        '<div class="arc-de">区划：<b>' + c.num + '</b>　特征：<b>' + c.feat + '</b></div></div>';
+    });
+    h += '</div>';
+    h += '<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;font-family:ui-monospace,monospace;font-size:11px;">' +
+      ['贝洞海（北↔东）','洞难海（东↔南）','难希海（南↔西）','希贝海（西↔北）','钟海（环绕魔域）'].map(function(x){
+        return '<span style="color:var(--gold,#ffd76b);border:1px solid rgba(255,215,107,.45);border-radius:99px;padding:3px 10px;background:rgba(255,215,107,.07);">' + x + '</span>';
+      }).join('') + '</div>';
+    h += '<div style="margin-top:14px;"><span data-sfx="open" onclick="archDoc(\'' + W + '00_总览.md\',\'世界总览\')" class="arc-btn">▸ 阅读完整总览档案</span></div>';
+    return h;
+  }
+  function openWin(title, addr, html, type){
+    if (IS_M){ openMobile(title, html); return; }
+    var layer = $('winLayer') || document.body;
+    var n = wins.length;
+    var w = document.createElement('div');
+    w.className = 'win glitch' + (type ? ' ' : '');
+    if (type) w.setAttribute('data-type', type);
+    w.style.left = Math.max(12, Math.min(innerWidth - 780, 70 + n*26)) + 'px';
+    w.style.top  = Math.max(48, 72 + n*24) + 'px';
+    w.innerHTML = '<div class="win-bar"><span class="win-tt">' + esc(title) + '</span>' +
+      '<span class="win-addr" style="font-family:ui-monospace,monospace;font-size:9.5px;color:var(--muted);margin-left:auto;margin-right:8px;">' + esc(addr) + '</span>' +
+      '<button class="win-x" data-sfx="close">✕ 关闭</button></div><div class="win-body">' + html + '</div>';
+    layer.appendChild(w); wins.push(w);
+    w.querySelector('.win-x').onclick = function(){ closeWin(w); };
+    dragify(w, w.querySelector('.win-bar'));
+    setTimeout(function(){ w.classList.remove('glitch'); }, 320);
+    return w;
+  }
+  function closeWin(w){
+    SFX.close();
+    w.style.transition='opacity .18s, transform .18s'; w.style.opacity='0'; w.style.transform='translateY(6px)';
+    setTimeout(function(){ if (w.parentNode) w.parentNode.removeChild(w); wins = wins.filter(function(x){ return x!==w; }); }, 180);
+  }
+  function closeAll(){ wins.forEach(function(w){ if (w.parentNode) w.parentNode.removeChild(w); }); wins = []; var ml=$('mLayer'); if (ml) ml.innerHTML=''; }
+  function openMobile(title, html){
+    var ml = $('mLayer');
+    if (!ml){ ml = document.createElement('div'); ml.id='mLayer'; document.body.appendChild(ml); }
+    ml.innerHTML = '<div class="m-page glitch"><div class="m-head"><span class="m-title">' + esc(title) + '</span>' +
+      '<button class="m-back" data-sfx="close" onclick="arcCloseMobile()">✕ 关闭</button></div><div class="m-body">' + html + '</div></div>';
+  }
+  function dragify(w, handle){
+    var drag=false, sx=0, sy=0, ox=0, oy=0;
+    handle.addEventListener('pointerdown', function(e){
+      if (e.target.closest && e.target.closest('.win-x')) return;
+      drag=true; sx=e.clientX; sy=e.clientY; ox=w.offsetLeft; oy=w.offsetTop; handle.style.cursor='grabbing';
+      try{ handle.setPointerCapture(e.pointerId); }catch(err){}
+    });
+    handle.addEventListener('pointermove', function(e){
+      if (!drag) return;
+      w.style.left = Math.max(0, Math.min(innerWidth-100, ox + e.clientX - sx)) + 'px';
+      w.style.top  = Math.max(38, Math.min(innerHeight-70, oy + e.clientY - sy)) + 'px';
+    });
+    function up(){ drag=false; handle.style.cursor='grab'; }
+    handle.addEventListener('pointerup', up); handle.addEventListener('pointercancel', up);
+  }
+
+  /* =======================================================================
+     五、读取并渲染 md 档案
+     ======================================================================= */
+  var cache = {};
+  function readDoc(file){
+    if (cache[file]) return Promise.resolve(cache[file]);
+    return fetch(file, { cache:'no-store' }).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).then(function(t){ cache[file] = t; return t; });
+  }
+  function archDoc(file, title){
+    SFX.click();
+    var loading = '<div class="arcdoc"><div style="color:var(--muted);font-family:ui-monospace,monospace;font-size:12px;">▸ 正在读取 ' + esc(file) + ' …</div></div>';
+    var box;
+    if (IS_M){ openMobile(title, loading); box = document.querySelector('#mLayer .m-body'); }
+    else { var w = openWin(title, 'q://' + file, loading, 'doc'); box = w.querySelector('.win-body'); }
+    readDoc(file).then(function(md){
+      if (box) box.innerHTML = '<div class="arcdoc">' + mdToHtml(md) + '<div class="arc-src">◈ 来源文件：' + esc(file) + '（改内容直接改这个 md 即可）</div></div>';
+      if (box) box.scrollTop = 0;
+    }).catch(function(err){
+      if (box) box.innerHTML = '<div class="arcdoc"><h1>' + esc(title) + '</h1><blockquote>⚠ 无法读取档案文件：' + esc(file) +
+        '<br><br>可能原因：① 文件未上传；② 用 file:// 直接双击打开（浏览器禁止读取同目录文件）。<br>请通过网站访问，或本地起静态服务（<code>python -m http.server</code>）。' +
+        '<br><br>错误：' + esc(err && err.message || err) + '</blockquote></div>';
+    });
+  }
+  function inline(s){
+    return esc(s)
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
+  }
+  function mdToHtml(md){
+    var lines = String(md).replace(/\r\n?/g,'\n').split('\n');
+    var out = [], tbl = null, list = false, code = false, quote = false;
+    function fl(){ if (list){ out.push('</ul>'); list=false; } }
+    function fq(){ if (quote){ out.push('</blockquote>'); quote=false; } }
+    function ft(){
+      if (!tbl) return;
+      var h = '<table><thead><tr>';
+      tbl.head.forEach(function(c){ h += '<th>' + inline(c) + '</th>'; });
+      h += '</tr></thead><tbody>';
+      tbl.rows.forEach(function(r){ h += '<tr>'; r.forEach(function(c){ h += '<td>' + inline(c) + '</td>'; }); h += '</tr>'; });
+      out.push(h + '</tbody></table>'); tbl = null;
+    }
+    function all(){ fl(); fq(); ft(); }
+    for (var i=0;i<lines.length;i++){
+      var ln = lines[i], m;
+      if (/^\s*```/.test(ln)){ all(); if (!code){ out.push('<pre><code>'); code=true; } else { out.push('</code></pre>'); code=false; } continue; }
+      if (code){ out.push(esc(ln)); continue; }
+      if (/^\s*$/.test(ln)){ all(); continue; }
+      if ((m = /^(#{1,4})\s+(.*)$/.exec(ln))){ all(); var lv=Math.min(m[1].length,3); out.push('<h'+lv+'>' + inline(m[2]) + '</h'+lv+'>'); continue; }
+      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(ln)){ all(); out.push('<hr>'); continue; }
+      if (/^\s*>/.test(ln)){ fl(); ft(); if (!quote){ out.push('<blockquote>'); quote=true; } out.push('<div>' + inline(ln.replace(/^\s*>\s?/,'')) + '</div>'); continue; }
+      if (/^\s*\|(.+)\|\s*$/.test(ln)){
+        fl(); fq();
+        if (/^\s*\|[\s:|-]+\|\s*$/.test(ln)) continue;
+        var cells = ln.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(function(s){ return s.trim(); });
+        if (!tbl) tbl = { head:cells, rows:[] }; else tbl.rows.push(cells);
+        continue;
+      } else ft();
+      if ((m = /^\s*(?:[-*+]|\d+\.)\s+(.*)$/.exec(ln))){
+        fq(); ft();
+        if (!list){ out.push('<ul>'); list=true; }
+        out.push('<li>' + inline(m[1]) + '</li>'); continue;
+      }
+      all(); out.push('<p>' + inline(ln) + '</p>');
+    }
+    all(); if (code) out.push('</code></pre>');
+    return out.join('\n');
+  }
+
+  /* =======================================================================
+     六、兜底外壳（皮肤文件缺失时使用）
+     ======================================================================= */
+  function buildFallbackShell(){
+    document.body.innerHTML =
+      '<div class="boot" id="boot"></div>' +
+      '<div class="login" id="login"><div style="width:min(420px,90vw);border:1px solid rgba(90,140,190,.3);border-radius:14px;padding:24px;background:rgba(10,15,26,.9);text-align:center;">' +
+      '<div style="font-family:ui-monospace,monospace;font-size:22px;letter-spacing:.14em;color:#22d3ee;">四分境域</div>' +
+      '<div style="font-family:ui-monospace,monospace;font-size:10px;color:#8fa3c0;letter-spacing:.3em;margin-top:6px;">ARCHIVE MODE</div>' +
+      '<button class="lg-btn" onclick="doGuest()" style="margin-top:18px;width:100%;padding:12px;border-radius:10px;border:1px solid #22d3ee;background:rgba(34,211,238,.12);color:#22d3ee;font-family:ui-monospace,monospace;">▸ 访客快速体验</button>' +
+      '<div style="color:#8fa3c0;font-size:11px;margin-top:12px;">（未找到皮肤文件，当前为兜底界面）</div></div></div>' +
+      '<div class="desk" id="desk" style="display:none">' +
+      '<div class="taskbar" style="position:absolute;left:0;right:0;top:0;height:38px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid rgba(90,140,190,.3);font-family:ui-monospace,monospace;font-size:11px;color:#8fa3c0;">' +
+      '<span id="whoM" style="color:#22d3ee;">◈ 访客</span><span style="flex:1;"></span><span id="clock"></span>' +
+      '<span id="qbtnD" onclick="logout()" style="cursor:pointer;color:#ff8b9a;border:1px solid rgba(255,90,110,.5);border-radius:6px;padding:3px 10px;">退出</span></div>' +
+      '<div class="dock" id="dock" style="position:absolute;left:50%;transform:translateX(-50%);bottom:16px;display:flex;gap:10px;padding:12px;border-radius:16px;border:1px solid rgba(90,140,190,.3);background:rgba(10,15,26,.9);overflow-x:auto;"></div>' +
+      '<div id="winLayer" style="position:absolute;inset:0;pointer-events:none;"></div></div>' +
+      '<div id="mLayer"></div>';
+  }
+
+  /* =======================================================================
+     七、内置补丁样式（仅用于档案阅读排版 / 卡片，不影响外壳观感）
+     ======================================================================= */
+  function injectDocCss(){
+    var css = '' +
+      '.arc-card{cursor:pointer;border:1px solid var(--line,rgba(90,140,190,.3));border-radius:12px;padding:11px 12px;' +
+      'background:var(--panel2,rgba(9,13,24,.9));transition:border-color .18s, box-shadow .18s;}' +
+      '.arc-card:hover{border-color:var(--cyan,#22d3ee);box-shadow:0 0 14px var(--glow1,rgba(34,211,238,.35));}' +
+      '.arc-no{font-family:ui-monospace,monospace;font-size:10px;color:var(--muted,#8fa3c0);}' +
+      '.arc-tt{font-size:13.5px;font-weight:700;margin:3px 0 4px;}' +
+      '.arc-de{font-size:11.5px;color:var(--muted,#8fa3c0);line-height:1.6;}' +
+      '.arc-btn{cursor:pointer;font-family:ui-monospace,monospace;font-size:12px;color:var(--cyan,#22d3ee);' +
+      'border:1px dashed rgba(34,211,238,.55);border-radius:10px;padding:8px 14px;display:inline-block;}' +
+      '.arc-src{margin-top:18px;font-family:ui-monospace,monospace;font-size:10px;color:var(--muted,#8fa3c0);' +
+      'border-top:1px dashed rgba(90,140,190,.35);padding-top:8px;}' +
+      '.arcdoc{font-size:13.5px;line-height:1.85;}' +
+      '.arcdoc h1{font-family:ui-monospace,monospace;font-size:19px;letter-spacing:.05em;color:var(--cyan,#22d3ee);margin:2px 0 12px;}' +
+      '.arcdoc h2{font-family:ui-monospace,monospace;font-size:15px;color:var(--gold,#ffd76b);margin:18px 0 8px;padding-left:9px;border-left:3px solid rgba(255,215,107,.6);}' +
+      '.arcdoc h3{font-size:13.5px;color:var(--cyan,#22d3ee);margin:14px 0 6px;}' +
+      '.arcdoc p{margin:7px 0;}' +
+      '.arcdoc ul{margin:6px 0 6px 4px;padding-left:18px;}.arcdoc li{margin:3px 0;}' +
+      '.arcdoc blockquote{margin:10px 0;padding:9px 12px;border-left:3px solid var(--pink,#ff6b9d);background:rgba(255,107,157,.07);font-size:13px;}' +
+      '.arcdoc table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12.5px;}' +
+      '.arcdoc th,.arcdoc td{border:1px solid rgba(90,140,190,.35);padding:6px 9px;text-align:left;vertical-align:top;}' +
+      '.arcdoc th{background:rgba(34,211,238,.09);color:var(--cyan,#22d3ee);font-family:ui-monospace,monospace;font-size:11.5px;}' +
+      '.arcdoc hr{border:0;border-top:1px dashed rgba(90,140,190,.4);margin:16px 0;}' +
+      '.arcdoc code{font-family:ui-monospace,monospace;font-size:12px;background:rgba(34,211,238,.1);border-radius:4px;padding:1px 5px;}' +
+      '.arcdoc pre{overflow:auto;border:1px solid rgba(90,140,190,.35);border-radius:8px;padding:10px;}' +
+      '.win-body,.m-body{max-height:min(74vh,640px);overflow-y:auto;}';
+    var s = document.createElement('style'); s.textContent = css; document.head.appendChild(s);
+  }
+
+  /* ---------------- 事件委托：音效 ---------------- */
+  document.addEventListener('click', function(e){
+    var el = e.target.closest ? e.target.closest('[data-sfx]') : null;
+    if (!el) return;
+    var k = el.getAttribute('data-sfx');
+    if (SFX[k]) SFX[k]();
+  }, true);
+  document.addEventListener('mouseover', function(e){
+    var el = e.target.closest ? e.target.closest('.dapp,.arc-card') : null;
+    if (el && el !== window.__hov){ window.__hov = el; SFX.hover(); }
+  }, true);
+
+  /* ---------------- 对外暴露（给克隆出来的界面调用） ---------------- */
+  window.doGuest = doGuest;
+  window.logout = logout;
+  window.archOpen = archOpen;
+  window.archDoc = archDoc;
+  window.arcCloseMobile = function(){ SFX.close(); var ml=$('mLayer'); if (ml) ml.innerHTML=''; };
+  window.openOverview = function(){ archOpen('geo'); };
+  window.openArchive  = function(){ archAll(); };
+  window.openTimeline = function(){ archOpen('history'); };
+  function archAll(){
+    SFX.click();
+    var total = 0; ARCH.forEach(function(a){ if (!a.special) total += a.files.length; });
+    var h = '<h1>档案总目录</h1><div class="app-sub">ALL FILES · 共 ' + total + ' 份（世界观设定 / 角色档案）</div>';
+    ARCH.forEach(function(a){
+      if (a.special) return;
+      h += '<div style="margin:14px 0 6px;font-family:ui-monospace,monospace;font-size:11.5px;letter-spacing:.14em;color:var(--gold,#ffd76b);">▸ ' + esc(a.nm) + '</div>';
+      h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">';
+      a.files.forEach(function(f){
+        h += '<div data-sfx="open" onclick="archDoc(\'' + f.f + '\',\'' + esc(f.t) + '\')" class="arc-card">' +
+          '<div class="arc-no">' + f.n + '</div><div class="arc-tt">' + esc(f.t) + '</div><div class="arc-de">' + esc(f.d) + '</div></div>';
+      });
+      h += '</div>';
+    });
+    openWin('档案总目录', 'q://archive/all', h, 'arc-all');
+  }
+  /* 原界面里可能引用到的函数 → 全部空实现，避免报错 */
+  ['openVisits','statTip','statRender','statWarn','statKickOut','tiredOut','doLogin','doReg','openApp','sbInit','sbPull','clearVisits','openMaint','openAdm','openAssist','openForum','openSocial','openNews']
+    .forEach(function(n){ if (typeof window[n] !== 'function') window[n] = function(){}; });
+  window.__exportSkin = function(){
+    try{
+      var css = localStorage.getItem(K_CSS) || '';
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([css], { type:'text/css;charset=utf-8' }));
+      a.download = 'style.css'; document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 800);
+      toast('已导出 style.css（放进同目录即可不再依赖 四分境域.html）');
+    }catch(e){ toast('导出失败：' + e.message); }
+  };
+
+  /* ---------------- 启动 ---------------- */
+  loadSkin().then(function(ok){
+    var msg = $('arcMsg'); if (msg) msg.parentNode.removeChild(msg);
+    var css = ''; try{ css = localStorage.getItem(K_CSS) || ''; }catch(e){}
+    injectDocCss();
+    pruneUI();
+    applyTheme(css);
+    if (!ok) injectCss(localStorage.getItem(K_CSS) || '');
+    /* 移动端切换时清掉窗口，避免错位 */
+    matchMedia('(max-width: 780px)').addEventListener('change', function(ev){ IS_M = ev.matches; closeAll(); });
+    boot();
+    if (ok) setTimeout(selfCheck, 400);
+    console.log('%c四分境域档案库（精简版）已载入 · 8 个档案 App · 音乐与音效已保留', 'color:#22d3ee');
+  });
+})();
+</script>
+</body>
+</html>
