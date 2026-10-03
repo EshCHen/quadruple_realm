@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>图标裁剪器 · 四分境域</title>
+<style>
+  :root{
+    --bg:#0b0c0e;--line:#22252a;--line2:#2e3236;--ink:#e7e9ec;--dim:#8a8f96;--dim2:#5f646b;
+    --flame:#d8dce2;--cure:#3fbfb2;--danger:#e8746a;--furnace:#dda24e;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono CJK SC",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI","Noto Sans SC","PingFang SC",sans-serif;
+    --cut:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.7;overflow-y:auto}
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(46,50,54,.3) 1px,transparent 1px),linear-gradient(90deg,rgba(46,50,54,.3) 1px,transparent 1px);
+    background-size:72px 72px;
+    mask-image:radial-gradient(circle at 50% 10%,#000 0%,transparent 78%);
+    -webkit-mask-image:radial-gradient(circle at 50% 10%,#000 0%,transparent 78%);
+  }
+  .wrap{max-width:880px;margin:0 auto;padding:30px 20px 70px}
+  h1{font-size:20px;margin:0 0 6px}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 22px}
+  .drop{
+    border:1px dashed var(--line2);background:rgba(19,21,24,.6);clip-path:var(--cut);
+    padding:34px 20px;text-align:center;color:var(--dim);cursor:pointer;transition:.16s;
+  }
+  .drop:hover,.drop.over{border-color:var(--flame);color:var(--ink);background:rgba(216,220,226,.05)}
+  .drop b{display:block;font-family:var(--mono);font-size:13px;letter-spacing:.1em;color:var(--ink);margin-bottom:6px}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-top:22px}
+  .panel{border:1px solid var(--line);background:rgba(19,21,24,.55);clip-path:var(--cut);padding:16px}
+  .panel h2{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--flame);margin:0 0 12px;font-weight:500}
+  .previews{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+  .cell{text-align:center}
+  .cell canvas{border:1px solid var(--line2);display:block;background:#0b0c0e}
+  .cell span{display:block;font-family:var(--mono);font-size:10px;color:var(--dim2);margin-top:5px}
+  .opts{display:flex;flex-direction:column;gap:11px;min-width:230px}
+  label.opt{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--dim);cursor:pointer}
+  label.opt input{margin-top:4px;accent-color:var(--flame)}
+  label.opt b{color:var(--ink);font-weight:500}
+  .btn{
+    appearance:none;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.06em;
+    color:var(--ink);background:rgba(19,21,24,.8);border:1px solid var(--line2);padding:9px 14px;
+    clip-path:var(--cut);transition:.16s;text-decoration:none;display:inline-block;
+  }
+  .btn:hover{border-color:var(--flame);color:var(--flame)}
+  .btn.pri{background:var(--flame);color:#0b0c0e;border-color:var(--flame);font-weight:600}
+  .btn.pri:hover{filter:brightness(1.1);color:#0b0c0e}
+  .btn[disabled]{opacity:.4;cursor:not-allowed}
+  .btns{display:flex;gap:9px;flex-wrap:wrap;margin-top:20px}
+  ol{padding-left:1.4em;color:#cfd3d9;font-size:13.5px}
+  li{margin:.35em 0}
+  code{font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.06);padding:.1em .38em;border-radius:3px}
+  .note{border-left:3px solid var(--furnace);background:rgba(221,162,78,.06);padding:10px 13px;color:#d9cdb6;font-size:12.5px;margin-top:18px}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>图标裁剪器</h1>
+  <p class="sub">选一张图 → 自动裁成正方形并导出 192 / 512 / 1024 三种尺寸，文件名已取好，直接放进 <code>assets/pwa/</code> 即可。</p>
+
+  <div class="drop" id="drop">
+    <b>点击选择图片 ／ 或把图片拖到这里</b>
+    支持 PNG · JPG · WebP · SVG（建议原图不小于 512×512）
+  </div>
+  <input type="file" id="file" accept="image/*" class="hide">
+
+  <div class="row hide" id="stage">
+    <div class="panel">
+      <h2>预览</h2>
+      <div class="previews">
+        <div class="cell"><canvas id="p512" width="512" height="512" style="width:150px;height:150px"></canvas><span>512</span></div>
+        <div class="cell"><canvas id="p192" width="192" height="192" style="width:78px;height:78px"></canvas><span>192</span></div>
+        <div class="cell"><canvas id="p64" width="64" height="64" style="width:40px;height:40px"></canvas><span>64</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>裁切方式</h2>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="mode" value="cover" checked>
+          <span><b>居中裁成正方形</b><br>放大到铺满、裁掉多出来的边（App 图标推荐）</span></label>
+        <label class="opt"><input type="radio" name="mode" value="contain">
+          <span><b>完整保留 + 补边</b><br>整张图缩进去，四周用底色补成正方形</span></label>
+        <label class="opt" id="bgRow"><input type="checkbox" id="transparent">
+          <span>补边用透明底（默认用深色 <code>#0b0c0e</code>）</span></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="btns hide" id="dlBtns">
+    <button class="btn pri" onclick="save(512)">下载 icon-512.png</button>
+    <button class="btn pri" onclick="save(192)">下载 icon-192.png</button>
+    <button class="btn" onclick="save(1024)">下载 icon-1024.png</button>
+    <button class="btn" onclick="reset()">换一张</button>
+  </div>
+
+  <ol style="margin-top:26px">
+    <li>下载这 3 个文件（1024 可选，更清晰）</li>
+    <li>放进项目的 <code>assets/pwa/</code> 目录，**文件名不要改**</li>
+    <li>刷新站点 → 手机浏览器里「添加到主屏幕」就是这个图标了</li>
+  </ol>
+
+  <div class="note">
+    所有处理都在你的浏览器里完成，图片不会上传到任何服务器。
+    如果下载按钮没反应，用任意在线图片工具按同样尺寸导出即可（192×192 / 512×512 / 1024×1024）。
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var img = null, name = "icon";
+  var fileEl = document.getElementById("file");
+  var drop = document.getElementById("drop");
+  var BG = "#0b0c0e";
+
+  drop.addEventListener("click", function(){ fileEl.click(); });
+  fileEl.addEventListener("change", function(e){ if(e.target.files[0]) load(e.target.files[0]); });
+  ["dragenter","dragover"].forEach(function(t){
+    drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add("over"); });
+  });
+  ["dragleave","drop"].forEach(function(t){
+    drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.remove("over"); });
+  });
+  drop.addEventListener("drop", function(e){
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) load(f);
+  });
+  [].forEach.call(document.querySelectorAll('input[name="mode"]'), function(r){
+    r.addEventListener("change", draw);
+  });
+  document.getElementById("transparent").addEventListener("change", draw);
+
+  function load(f){
+    name = (f.name || "icon").replace(/\.[^.]+$/, "");
+    var url = URL.createObjectURL(f);
+    var im = new Image();
+    im.onload = function(){
+      img = im;
+      document.getElementById("stage").classList.remove("hide");
+      document.getElementById("dlBtns").classList.remove("hide");
+      drop.innerHTML = "<b>已载入：" + f.name + "</b>换一张请重新点击或拖拽";
+      draw();
+    };
+    im.onerror = function(){ alert("这张图片读不出来，换一张试试（SVG 请先在浏览器里打开确认能显示）。"); };
+    im.src = url;
+  }
+
+  function mode(){ return document.querySelector('input[name="mode"]:checked').value; }
+
+  function paint(cv){
+    var ctx = cv.getContext("2d"), S = cv.width;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, S, S);
+    if(!img) return;
+    var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    if(mode() === "cover"){
+      var s = Math.max(S / iw, S / ih);
+      var w = iw * s, h = ih * s;
+      ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+    }else{
+      if(!document.getElementById("transparent").checked){
+        ctx.fillStyle = BG;
+        ctx.fillRect(0, 0, S, S);
+      }
+      var s2 = Math.min(S / iw, S / ih);
+      var w2 = iw * s2, h2 = ih * s2;
+      ctx.drawImage(img, (S - w2) / 2, (S - h2) / 2, w2, h2);
+    }
+  }
+
+  function draw(){
+    ["p512","p192","p64"].forEach(function(id){ paint(document.getElementById(id)); });
+  }
+
+  window.save = function(size){
+    if(!img) return;
+    var cv = document.createElement("canvas");
+    cv.width = cv.height = size;
+    paint(cv);
+    try{
+      var a = document.createElement("a");
+      a.href = cv.toDataURL("image/png");
+      a.download = "icon-" + size + ".png";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ a.remove(); }, 600);
+    }catch(e){
+      alert("当前环境不允许导出。请改用在线工具按 " + size + "×" + size + " 导出。");
+    }
+  };
+  window.reset = function(){ img = null; fileEl.value = ""; location.reload(); };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>404 · 卷宗缺失 | 四分境域</title>
+<meta name="theme-color" content="#0b0c0e">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root{
+    --bg:#0b0c0e; --line:#212427; --line-2:#2e3236;
+    --ink:#e7e9ec; --dim:#8a8f96; --dim-2:#5f646b; --flame:#d8dce2; --furnace:#dda24e;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","Noto Sans Mono CJK SC",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    --cut:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;min-height:100dvh;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:14px;line-height:1.7;overflow-y:auto;
+    display:flex;align-items:center;justify-content:center;padding:max(20px,env(safe-area-inset-top)) 18px max(20px,env(safe-area-inset-bottom));
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.55;
+    background-image:linear-gradient(rgba(46,50,54,.3) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(46,50,54,.3) 1px,transparent 1px);
+    background-size:72px 72px;
+    mask-image:radial-gradient(circle at 50% 40%,#000 0%,transparent 78%);
+    -webkit-mask-image:radial-gradient(circle at 50% 40%,#000 0%,transparent 78%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:9998;pointer-events:none;opacity:.3;
+    background:repeating-linear-gradient(180deg,rgba(255,255,255,.03) 0 1px,transparent 1px 3px);
+  }
+  /* 取景角 */
+  .fa,.fb,.fc,.fd{position:fixed;width:18px;height:18px;border:1px solid var(--flame);opacity:.4;pointer-events:none}
+  .fa{top:7px;left:7px;border-right:none;border-bottom:none}
+  .fb{top:7px;right:7px;border-left:none;border-bottom:none}
+  .fc{bottom:7px;left:7px;border-right:none;border-top:none}
+  .fd{bottom:7px;right:7px;border-left:none;border-top:none}
+
+  .card{
+    position:relative;width:100%;max-width:620px;padding:28px 26px 26px;
+    background:linear-gradient(180deg,rgba(19,21,24,.95),rgba(11,12,14,.95));
+    border:1px solid var(--line-2);clip-path:var(--cut);
+    box-shadow:0 30px 80px rgba(0,0,0,.6),inset 0 0 60px rgba(255,255,255,.02);
+  }
+  .card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--flame),transparent);opacity:.8;
+  }
+  .bar{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim-2);text-transform:uppercase;
+    border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:20px}
+  .bar b{color:var(--flame);font-weight:500}
+  .code{
+    font-family:var(--mono);font-size:clamp(64px,17vw,104px);line-height:.95;font-weight:800;letter-spacing:.04em;
+    color:var(--ink);text-shadow:0 0 40px rgba(216,220,226,.18);animation:glitch 9s steps(1) infinite;
+  }
+  @keyframes glitch{
+    0%,88%{transform:none;filter:none}
+    89%{transform:translate(-3px,1px);filter:drop-shadow(3px 0 #e8746a) drop-shadow(-3px 0 #3fbfb2)}
+    91%{transform:translate(3px,-1px);filter:drop-shadow(-3px 0 #e8746a) drop-shadow(3px 0 #3fbfb2)}
+    93%{transform:none;filter:none}
+    95%{transform:translate(2px,0);filter:drop-shadow(2px 0 #3fbfb2)}
+    97%{transform:none;filter:none}
+  }
+  h1{font-size:19px;margin:14px 0 6px;font-weight:600}
+  p{margin:.5em 0;color:var(--dim);font-size:13.5px}
+  .path{
+    display:block;margin-top:14px;padding:10px 13px;border:1px solid var(--line);
+    background:rgba(10,11,13,.7);clip-path:var(--cut);
+    font-family:var(--mono);font-size:11.5px;color:var(--ink);word-break:break-all;
+  }
+  .path span{color:var(--dim-2)}
+  .note{margin-top:16px;border-left:3px solid var(--furnace);background:rgba(221,162,78,.06);
+    padding:10px 13px;color:#d9cdb6;font-size:12.5px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+  .btn{
+    appearance:none;cursor:pointer;text-decoration:none;display:inline-block;
+    font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    background:var(--flame);color:#0b0c0e;border:none;padding:11px 20px;clip-path:var(--cut);
+    font-weight:600;transition:.16s;
+  }
+  .btn:hover{filter:brightness(1.12);box-shadow:0 0 24px rgba(216,220,226,.35)}
+  .btn.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line-2);font-weight:400}
+  .btn.ghost:hover{box-shadow:inset 0 0 0 1px var(--flame);filter:none}
+  footer{margin-top:22px;border-top:1px solid var(--line);padding-top:12px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--dim-2);
+    display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  @media (max-width:430px){ .card{padding:22px 18px} footer > span:first-child{display:none} }
+  @media (prefers-reduced-motion: reduce){ .code{animation:none} }
+</style>
+</head>
+<body>
+
+<i class="fa"></i><i class="fb"></i><i class="fc"></i><i class="fd"></i>
+
+<div class="card">
+  <div class="bar">
+    <span><b>CDA//</b> 边境档案终端</span>
+    <span>ERR · 404 · NOT FOUND</span>
+  </div>
+
+  <div class="code">404</div>
+  <h1>该卷宗不在 CDA 注册库中。</h1>
+  <p>你请求的坐标没有被任何一条裂隙记录过。可能是链接写错了、档案被移动了，或者这条路径本就不存在。</p>
+
+  <div class="path"><span>请求路径 ／</span> <b id="reqPath">—</b></div>
+
+  <div class="note">
+    想翻阅现存档案？回到世界档案总目，那里有 <b>22 卷</b>已登记的卷宗可以查阅。
+  </div>
+
+  <div class="row">
+    <a class="btn" id="homeLink" href="/">返回世界档案</a>
+    <a class="btn ghost" href="javascript:history.back()">返回上一页</a>
+  </div>
+
+  <footer>
+    <span>© 3047 四分境域 · 世界设定集</span>
+    <span>CREATOR: EshCen &amp; NyaR</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  /* 显示请求路径 */
+  var p = location.pathname + location.hash;
+  var el = document.getElementById("reqPath");
+  if(el) el.textContent = p || "/";
+
+  /* 计算站点根目录：直接访问 /404.html 时取其所在目录，否则用根路径。
+     若你的站点部署在子目录（例如 example.com/world/），
+     请把下面 href="/" 改成 href="/world/"。 */
+  var base = "/";
+  if(/\/404\.html?$/i.test(location.pathname)){
+    base = location.pathname.replace(/404\.html?$/i, "");
+  }
+  var home = document.getElementById("homeLink");
+  if(home) home.setAttribute("href", base);
+})();
+</script>
+</body>
+</html>
